@@ -1,0 +1,380 @@
+//
+//  Countdown.swift
+//  countify
+//
+//  Created by Ye Zonglin Isaac on 2/8/25.
+//
+
+import SwiftUI
+import Combine
+
+// MARK: - Storage Helper
+
+class CountdownStorage {
+    static let countdownsKey = "countdownsKey"
+    static let archivedKey = "archivedCountdownsKey"
+    
+    static func saveCountdowns(_ countdowns: [CountdownItem]) {
+        if let encoded = try? JSONEncoder().encode(countdowns) {
+            UserDefaults.standard.set(encoded, forKey: countdownsKey)
+        }
+    }
+    
+    static func loadCountdowns() -> [CountdownItem] {
+        guard let data = UserDefaults.standard.data(forKey: countdownsKey),
+              let decoded = try? JSONDecoder().decode([CountdownItem].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+    
+    static func saveArchived(_ archived: [CountdownItem]) {
+        if let encoded = try? JSONEncoder().encode(archived) {
+            UserDefaults.standard.set(encoded, forKey: archivedKey)
+        }
+    }
+    
+    static func loadArchived() -> [CountdownItem] {
+        guard let data = UserDefaults.standard.data(forKey: archivedKey),
+              let decoded = try? JSONDecoder().decode([CountdownItem].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+}
+
+// MARK: - CountdownView
+
+struct CountdownView: View {
+    @State private var countdowns: [CountdownItem] = []
+    @State private var archivedCountdowns: [CountdownItem] = []
+    @State private var searchText = ""
+    @State private var showingAddNew = false
+    @State private var showingArchived = false
+    @State private var showDeleteAllConfirmation = false
+    
+    // Filter countdowns by search text
+    var filteredCountdowns: [CountdownItem] {
+        if searchText.isEmpty {
+            return countdowns
+        } else {
+            return countdowns.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText) ||
+                ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+            }
+        }
+    }
+    
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(
+                gradient: Gradient(colors: [Color.yellow, Color.pink]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+            .frame(height: UIScreen.main.bounds.height * 0.38)
+            
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Countify")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.leading)
+                    
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        RectButton(icon: "plus", label: "Add New") {
+                            showingAddNew = true
+                        }
+                        RectButton(icon: "archivebox", label: "Archived") {
+                            showingArchived = true
+                        }
+                        RectButton(icon: "link", label: "Share")
+                        RectButton(icon: "trash", label: "Delete All") {
+                            showDeleteAllConfirmation = true
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.top, 60)
+                
+                Spacer()
+            }
+            
+            VStack {
+                Spacer(minLength: UIScreen.main.bounds.height * 0.30)
+                
+                ZStack {
+                    RoundedRectangle(cornerRadius: 32)
+                        .fill(Color.white)
+                        .ignoresSafeArea()
+                    
+                    VStack {
+                        // Search Bar
+                        TextField("Search countdowns...", text: $searchText)
+                            .padding(10)
+                            .background(Color(UIColor.systemGray5))
+                            .cornerRadius(12)
+                            .padding(.horizontal)
+                            .padding(.top, 16)
+                        
+                        if filteredCountdowns.isEmpty {
+                            Spacer()
+                            Text("No countdowns")
+                                .foregroundColor(.gray)
+                                .font(.title3)
+                                .italic()
+                            Spacer()
+                        } else {
+                            List {
+                                ForEach(filteredCountdowns) { countdown in
+                                    CountdownTile(countdown: countdown)
+                                        .listRowBackground(Color.white)
+                                        .listRowInsets(EdgeInsets())
+                                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                            Button {
+                                                togglePin(countdown)
+                                            } label: {
+                                                Label(countdown.isPinned ? "Unpin" : "Pin", systemImage: "pin")
+                                            }
+                                            .tint(countdown.isPinned ? .gray : .yellow)
+                                        }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                            Button(role: .destructive) {
+                                                archiveCountdown(countdown)
+                                            } label: {
+                                                Label("Archive", systemImage: "archivebox")
+                                            }
+                                        }
+                                }
+                                .listRowSeparator(.hidden)
+                            }
+                            .listStyle(PlainListStyle())
+                            .padding(.top, 8)
+                            .padding(.horizontal, 15)
+                        }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddNew) {
+            AddCountdownView { newCountdown in
+                countdowns.append(newCountdown)
+                removeExpiredCountdowns()
+                showingAddNew = false
+            }
+        }
+        .sheet(isPresented: $showingArchived) {
+            ArchivedView(
+                archivedCountdowns: $archivedCountdowns,
+                onRestore: restoreFromArchive,
+                onDeletePermanently: deleteFromArchive
+            )
+        }
+        .alert("Delete All Countdowns?", isPresented: $showDeleteAllConfirmation) {
+            Button("Delete All", role: .destructive) {
+                moveAllToArchive()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to move all countdowns to archived?")
+        }
+        .onAppear {
+            countdowns = CountdownStorage.loadCountdowns()
+            archivedCountdowns = CountdownStorage.loadArchived()
+            removeExpiredCountdowns()
+        }
+        .onChange(of: countdowns) { newValue in
+            CountdownStorage.saveCountdowns(newValue)
+        }
+        .onChange(of: archivedCountdowns) { newValue in
+            CountdownStorage.saveArchived(newValue)
+        }
+    }
+    
+    // MARK: - Functions
+    
+    private func togglePin(_ countdown: CountdownItem) {
+        if let index = countdowns.firstIndex(where: { $0.id == countdown.id }) {
+            countdowns[index].isPinned.toggle()
+        }
+    }
+    
+    private func archiveCountdown(_ countdown: CountdownItem) {
+        countdowns.removeAll { $0.id == countdown.id }
+        archivedCountdowns.append(countdown)
+    }
+    
+    private func removeExpiredCountdowns() {
+        let now = Date()
+        let expired = countdowns.filter { $0.date <= now }
+        for item in expired {
+            archiveCountdown(item)
+        }
+    }
+    
+    private func moveAllToArchive() {
+        archivedCountdowns.append(contentsOf: countdowns)
+        countdowns.removeAll()
+    }
+    
+    private func restoreFromArchive(_ countdown: CountdownItem) {
+        archivedCountdowns.removeAll { $0.id == countdown.id }
+        countdowns.append(countdown)
+    }
+    
+    private func deleteFromArchive(_ countdown: CountdownItem) {
+        archivedCountdowns.removeAll { $0.id == countdown.id }
+    }
+}
+
+
+// MARK: - RectButton
+
+struct RectButton: View {
+    var icon: String
+    var label: String
+    var action: () -> Void = {}
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .frame(width: 28)
+                Text(label)
+                    .foregroundColor(.white)
+                    .fontWeight(.semibold)
+                Spacer()
+            }
+            .padding()
+            .background(Color.white.opacity(0.25))
+            .cornerRadius(16)
+        }
+    }
+}
+
+// MARK: - CountdownTile
+
+struct CountdownTile: View {
+    var countdown: CountdownItem
+    
+    @State private var now = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
+    var timeRemaining: String {
+        let diff = countdown.date.timeIntervalSince(now)
+        if diff <= 0 {
+            return "Event Passed"
+        }
+        let days = Int(diff) / 86400
+        let hours = (Int(diff) % 86400) / 3600
+        let minutes = (Int(diff) % 3600) / 60
+        let seconds = Int(diff) % 60
+        return String(format: "%dd %dh %dm %ds left", days, hours, minutes, seconds)
+    }
+    
+    var body: some View {
+        NavigationLink(destination: CountdownDetailView(countdown: countdown)) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(countdown.title)
+                        .font(.headline)
+                    if countdown.isPinned {
+                        Image(systemName: "pin.fill")
+                            .foregroundColor(.yellow)
+                    }
+                }
+                if let desc = countdown.description {
+                    Text(desc)
+                        .font(.subheadline)
+                        .foregroundColor(.black)
+                }
+                Text(timeRemaining)
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(UIColor.systemGray5))
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 2)
+            .contentShape(Rectangle()) // Make entire tile tappable
+        }
+        .onReceive(timer) { input in
+            now = input
+        }
+    }
+}
+
+
+// MARK: - ArchivedView
+
+struct ArchivedView: View {
+    @Binding var archivedCountdowns: [CountdownItem]
+    
+    var onRestore: (CountdownItem) -> Void
+    var onDeletePermanently: (CountdownItem) -> Void
+    
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                if archivedCountdowns.isEmpty {
+                    Text("No archived countdowns")
+                        .foregroundColor(.gray)
+                        .italic()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ForEach(archivedCountdowns) { countdown in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(countdown.title)
+                                .font(.headline)
+                            if let desc = countdown.description {
+                                Text(desc)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            Text("Event date: \(countdown.date.formatted(date: .numeric, time: .shortened))")
+                                .font(.footnote)
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.vertical, 8)
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            Button {
+                                onRestore(countdown)
+                            } label: {
+                                Label("Restore", systemImage: "arrow.uturn.backward")
+                            }
+                            .tint(.blue)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                onDeletePermanently(countdown)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Archived")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    CountdownView()
+}
