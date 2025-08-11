@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import UIKit
 
 // MARK: - Storage Helper
 
@@ -53,6 +54,10 @@ struct CountdownView: View {
     @State private var showingArchived = false
     @State private var showDeleteAllConfirmation = false
     
+    // Sharing state
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
+    
     // Filter countdowns by search text
     var filteredCountdowns: [CountdownItem] {
         if searchText.isEmpty {
@@ -66,130 +71,137 @@ struct CountdownView: View {
     }
     
     var body: some View {
-        ZStack(alignment: .top) {
-            LinearGradient(
-                gradient: Gradient(colors: [Color.yellow, Color.pink]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            .frame(height: UIScreen.main.bounds.height * 0.38)
-            
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Countify")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(.leading)
-                    
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        RectButton(icon: "plus", label: "Add New") {
-                            showingAddNew = true
-                        }
-                        RectButton(icon: "archivebox", label: "Archived") {
-                            showingArchived = true
-                        }
-                        RectButton(icon: "link", label: "Share")
-                        RectButton(icon: "trash", label: "Delete All") {
-                            showDeleteAllConfirmation = true
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .padding(.top, 60)
+        NavigationStack {
+            ZStack(alignment: .top) {
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.yellow, Color.pink]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                .frame(height: UIScreen.main.bounds.height * 0.38)
                 
-                Spacer()
-            }
-            
-            VStack {
-                Spacer(minLength: UIScreen.main.bounds.height * 0.30)
-                
-                ZStack {
-                    RoundedRectangle(cornerRadius: 32)
-                        .fill(Color.white)
-                        .ignoresSafeArea()
-                    
-                    VStack {
-                        // Search Bar
-                        TextField("Search countdowns...", text: $searchText)
-                            .padding(10)
-                            .background(Color(UIColor.systemGray5))
-                            .cornerRadius(12)
-                            .padding(.horizontal)
-                            .padding(.top, 16)
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Countify")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.leading)
                         
-                        if filteredCountdowns.isEmpty {
-                            Spacer()
-                            Text("No countdowns")
-                                .foregroundColor(.gray)
-                                .font(.title3)
-                                .italic()
-                            Spacer()
-                        } else {
-                            List {
-                                ForEach(filteredCountdowns) { countdown in
-                                    CountdownTile(countdown: countdown)
-                                        .listRowBackground(Color.white)
-                                        .listRowInsets(EdgeInsets())
-                                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                            Button {
-                                                togglePin(countdown)
-                                            } label: {
-                                                Label(countdown.isPinned ? "Unpin" : "Pin", systemImage: "pin")
-                                            }
-                                            .tint(countdown.isPinned ? .gray : .yellow)
-                                        }
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                            Button(role: .destructive) {
-                                                archiveCountdown(countdown)
-                                            } label: {
-                                                Label("Archive", systemImage: "archivebox")
-                                            }
-                                        }
-                                }
-                                .listRowSeparator(.hidden)
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            RectButton(icon: "plus", label: "Add New") {
+                                showingAddNew = true
                             }
-                            .listStyle(PlainListStyle())
-                            .padding(.top, 8)
-                            .padding(.horizontal, 15)
+                            RectButton(icon: "archivebox", label: "Archived") {
+                                showingArchived = true
+                            }
+                            RectButton(icon: "link", label: "Share") {
+                                shareCountdownsAsLink()
+                            }
+                            RectButton(icon: "trash", label: "Delete All") {
+                                showDeleteAllConfirmation = true
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .padding(.top, 60)
+                    
+                    Spacer()
+                }
+                
+                VStack {
+                    Spacer(minLength: UIScreen.main.bounds.height * 0.30)
+                    
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 32)
+                            .fill(Color.white)
+                            .ignoresSafeArea()
+                        
+                        VStack {
+                            // Search Bar
+                            TextField("Search countdowns...", text: $searchText)
+                                .padding(10)
+                                .background(Color(UIColor.systemGray5))
+                                .cornerRadius(12)
+                                .padding(.horizontal)
+                                .padding(.top, 16)
+                            
+                            if filteredCountdowns.isEmpty {
+                                Spacer()
+                                Text("No countdowns")
+                                    .foregroundColor(.gray)
+                                    .font(.title3)
+                                    .italic()
+                                Spacer()
+                            } else {
+                                List {
+                                    ForEach(filteredCountdowns) { countdown in
+                                        CountdownTile(countdown: countdown)
+                                            .listRowBackground(Color.white)
+                                            .listRowInsets(EdgeInsets())
+                                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                                Button {
+                                                    togglePin(countdown)
+                                                } label: {
+                                                    Label(countdown.isPinned ? "Unpin" : "Pin", systemImage: "pin")
+                                                }
+                                                .tint(countdown.isPinned ? .gray : .yellow)
+                                            }
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                Button(role: .destructive) {
+                                                    archiveCountdown(countdown)
+                                                } label: {
+                                                    Label("Archive", systemImage: "archivebox")
+                                                }
+                                            }
+                                    }
+                                    .listRowSeparator(.hidden)
+                                }
+                                .listStyle(PlainListStyle())
+                                .padding(.top, 8)
+                                .padding(.horizontal, 15)
+                            }
                         }
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showingAddNew) {
-            AddCountdownView { newCountdown in
-                countdowns.append(newCountdown)
+            .sheet(isPresented: $showingAddNew) {
+                AddCountdownView { newCountdown in
+                    countdowns.append(newCountdown)
+                    removeExpiredCountdowns()
+                    showingAddNew = false
+                }
+            }
+            .sheet(isPresented: $showingArchived) {
+                ArchivedView(
+                    archivedCountdowns: $archivedCountdowns,
+                    onRestore: restoreFromArchive,
+                    onDeletePermanently: deleteFromArchive
+                )
+            }
+            .sheet(isPresented: $showShareSheet) {
+                ActivityView(activityItems: shareItems)
+            }
+            .alert("Delete All Countdowns?", isPresented: $showDeleteAllConfirmation) {
+                Button("Delete All", role: .destructive) {
+                    moveAllToArchive()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to move all countdowns to archived?")
+            }
+            .onAppear {
+                countdowns = CountdownStorage.loadCountdowns()
+                archivedCountdowns = CountdownStorage.loadArchived()
                 removeExpiredCountdowns()
-                showingAddNew = false
             }
-        }
-        .sheet(isPresented: $showingArchived) {
-            ArchivedView(
-                archivedCountdowns: $archivedCountdowns,
-                onRestore: restoreFromArchive,
-                onDeletePermanently: deleteFromArchive
-            )
-        }
-        .alert("Delete All Countdowns?", isPresented: $showDeleteAllConfirmation) {
-            Button("Delete All", role: .destructive) {
-                moveAllToArchive()
+            .onChange(of: countdowns) { newValue in
+                CountdownStorage.saveCountdowns(newValue)
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to move all countdowns to archived?")
-        }
-        .onAppear {
-            countdowns = CountdownStorage.loadCountdowns()
-            archivedCountdowns = CountdownStorage.loadArchived()
-            removeExpiredCountdowns()
-        }
-        .onChange(of: countdowns) { newValue in
-            CountdownStorage.saveCountdowns(newValue)
-        }
-        .onChange(of: archivedCountdowns) { newValue in
-            CountdownStorage.saveArchived(newValue)
+            .onChange(of: archivedCountdowns) { newValue in
+                CountdownStorage.saveArchived(newValue)
+            }
         }
     }
     
@@ -227,6 +239,75 @@ struct CountdownView: View {
     private func deleteFromArchive(_ countdown: CountdownItem) {
         archivedCountdowns.removeAll { $0.id == countdown.id }
     }
+    
+    // MARK: - Sharing
+    
+    private func shareCountdownsAsLink() {
+        do {
+            // Encode countdowns as JSON
+            let jsonData = try JSONEncoder().encode(countdowns)
+            // Base64 encode JSON data
+            let base64String = jsonData.base64EncodedString()
+            // Create custom URL with scheme and encoded data
+            let urlString = "countify://import?data=\(base64String)"
+            
+            if let url = URL(string: urlString) {
+                shareItems = [url]
+                showShareSheet = true
+            } else {
+                print("Invalid share URL")
+            }
+        } catch {
+            print("Error encoding countdowns: \(error)")
+        }
+    }
+    
+    // MARK: - Import helper
+    
+    /// Call this from your app's URL open handler to import countdowns safely.
+    func importCountdowns(from url: URL) {
+        guard url.scheme == "countify",
+              url.host == "import",
+              let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+              let dataString = queryItems.first(where: { $0.name == "data" })?.value,
+              let decodedData = Data(base64Encoded: dataString) else {
+            print("Invalid import URL")
+            return
+        }
+        
+        do {
+            let importedCountdowns = try JSONDecoder().decode([CountdownItem].self, from: decodedData)
+            
+            // Add only new countdowns (no duplicates)
+            for countdown in importedCountdowns {
+                if !countdowns.contains(where: { $0.id == countdown.id }) {
+                    countdowns.append(countdown)
+                }
+            }
+            
+            // Save updated countdowns locally
+            CountdownStorage.saveCountdowns(countdowns)
+        } catch {
+            print("Failed to decode countdowns: \(error)")
+        }
+    }
+}
+
+
+// MARK: - ActivityView for Share Sheet
+
+struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: applicationActivities
+        )
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 
@@ -308,7 +389,6 @@ struct CountdownTile: View {
         }
     }
 }
-
 
 // MARK: - ArchivedView
 
