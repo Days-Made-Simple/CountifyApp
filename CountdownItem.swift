@@ -13,5 +13,8 @@ struct CountdownItem: Identifiable, Codable, Equatable {
     var date: Date
     var description: String?
     var createdDate: Date
+    var notificationsEnabled: Bool = false
+    var notificationDays: [Int] = []
+    var notificationTime: Date = Date()
     var isPinned: Bool = false
 }
