@@ -166,10 +166,12 @@ struct CountdownView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddNew) {
+            .navigationDestination(isPresented: $showingAddNew) {
                 AddCountdownView { newCountdown in
                     countdowns.append(newCountdown)
+                    print("Added countdown: \(newCountdown.title), total now: \(countdowns.count)")
                     removeExpiredCountdowns()
+                    CountdownStorage.saveCountdowns(countdowns)
                     showingAddNew = false
                 }
             }
@@ -292,7 +294,6 @@ struct CountdownView: View {
         }
     }
 }
-
 
 // MARK: - ActivityView for Share Sheet
 
@@ -451,10 +452,4 @@ struct ArchivedView: View {
             }
         }
     }
-}
-
-// MARK: - Preview
-
-#Preview {
-    CountdownView()
 }
